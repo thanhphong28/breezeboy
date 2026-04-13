@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { getApiErrorDetails, getJsonBody, normalizeLyricText } from "./helpers";
+import { getApiErrorDetails, getJsonBody, normalizeLyricText } from "./helpers.js";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
