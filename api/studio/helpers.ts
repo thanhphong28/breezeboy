@@ -1,14 +1,77 @@
-export function getApiErrorDetails(error: unknown, fallbackMessage: string) {
-  const status =
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    typeof (error as { status?: unknown }).status === "number"
-      ? ((error as { status: number }).status)
-      : 500;
+function getStatusFromError(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
 
-  const rawMessage =
-    error instanceof Error && error.message ? error.message : fallbackMessage;
+  const maybeObject = error as Record<string, unknown>;
+  const statusFields = ["status", "statusCode", "code"] as const;
+
+  for (const field of statusFields) {
+    const value = maybeObject[field];
+    if (typeof value === "number") {
+      return value;
+    }
+  }
+
+  if (typeof maybeObject.error === "object" && maybeObject.error !== null) {
+    const nested = maybeObject.error as Record<string, unknown>;
+    for (const field of statusFields) {
+      const value = nested[field];
+      if (typeof value === "number") {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function getMessageFromError(error: unknown, fallbackMessage: string) {
+  let message = fallbackMessage;
+
+  if (typeof error === "string" && error.trim()) {
+    message = error;
+  } else if (error instanceof Error && error.message) {
+    message = error.message;
+  } else if (typeof error === "object" && error !== null) {
+    const maybeObject = error as Record<string, unknown>;
+    if (typeof maybeObject.message === "string" && maybeObject.message.trim()) {
+      message = maybeObject.message;
+    } else if (typeof maybeObject.error === "object" && maybeObject.error !== null) {
+      const nested = maybeObject.error as Record<string, unknown>;
+      if (typeof nested.message === "string" && nested.message.trim()) {
+        message = nested.message;
+      }
+    }
+  }
+
+  if (typeof message === "string") {
+    try {
+      const parsed = JSON.parse(message);
+      if (parsed && typeof parsed === "object") {
+        const parsedObject = parsed as Record<string, unknown>;
+        if (typeof parsedObject.message === "string") {
+          message = parsedObject.message;
+        } else if (typeof parsedObject.error === "object" && parsedObject.error !== null) {
+          const nested = parsedObject.error as Record<string, unknown>;
+          if (typeof nested.message === "string") {
+            message = nested.message;
+          } else {
+            message = JSON.stringify(parsedObject.error);
+          }
+        }
+      }
+    } catch {
+      // keep original message if it is not JSON
+    }
+  }
+
+  return message || fallbackMessage;
+}
+
+export function getApiErrorDetails(error: unknown, fallbackMessage: string) {
+  const status = getStatusFromError(error) ?? 500;
+  const rawMessage = getMessageFromError(error, fallbackMessage);
 
   if (status === 429) {
     return {
@@ -26,16 +89,24 @@ export function getApiErrorDetails(error: unknown, fallbackMessage: string) {
     };
   }
 
+  if (status === 403) {
+    return {
+      status,
+      message:
+        "Authentication failed. Verify GEMINI_API_KEY and ensure the key is valid and enabled for the Gemini API.",
+    };
+  }
+
   if (status === 400) {
     return {
       status,
-      message: rawMessage || fallbackMessage,
+      message: rawMessage,
     };
   }
 
   return {
     status,
-    message: rawMessage || fallbackMessage,
+    message: rawMessage,
   };
 }
 
@@ -70,8 +141,27 @@ export function normalizeLyricText(text?: string) {
 }
 
 export async function getJsonBody(req: any) {
-  if (req.body && typeof req.body === "object") {
-    return req.body;
+  const contentType = req.headers?.["content-type"] || req.headers?.["Content-Type"];
+  try {
+    if (req.body && typeof req.body === "object") {
+      return req.body;
+    }
+
+    if (req.body && typeof req.body === "string") {
+      return JSON.parse(req.body);
+    }
+
+    if (req.body && Buffer.isBuffer(req.body)) {
+      return JSON.parse(req.body.toString("utf8"));
+    }
+  } catch (error) {
+    console.error("getJsonBody parse error", {
+      contentType,
+      bodyType: typeof req.body,
+      bodyValue: req.body && req.body.toString ? req.body.toString().slice(0, 120) : String(req.body),
+      error: error instanceof Error ? error.message : error,
+    });
+    throw new Error("Invalid JSON");
   }
 
   return new Promise((resolve, reject) => {
@@ -87,7 +177,7 @@ export async function getJsonBody(req: any) {
       try {
         resolve(JSON.parse(body));
       } catch (error) {
-        reject(error);
+        reject(new Error("Invalid JSON"));
       }
     });
     req.on("error", reject);
