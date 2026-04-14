@@ -119,7 +119,9 @@ export function getApiErrorDetails(error: unknown, fallbackMessage: string) {
     return {
       status,
       message:
-        "Authentication failed. Verify GEMINI_API_KEY. If you pasted it into Vercel with quotes, remove them. Also ensure the key is valid, Gemini API access is enabled, and no API key restrictions are blocking Vercel.",
+        rawMessage && rawMessage !== fallbackMessage
+          ? `Authentication failed. ${rawMessage}`
+          : "Authentication failed. Verify GEMINI_API_KEY. If you pasted it into Vercel with quotes, remove them. Also ensure the key is valid, Gemini API access is enabled, and no API key restrictions are blocking Vercel.",
     };
   }
 

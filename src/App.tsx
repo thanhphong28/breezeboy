@@ -12,6 +12,10 @@ import Lenis from "lenis";
 import { content, initialLyricGreeting, type Language } from "./copy";
 
 type LyricMessage = { role: "user" | "bot"; content: string };
+type LyricDiagnostic = {
+  status?: number;
+  message: string;
+};
 
 const getInitialLanguage = (): Language => {
   if (typeof window === "undefined") return "vi";
@@ -61,6 +65,7 @@ export default function App() {
   ]);
   const [currentLyricInput, setCurrentLyricInput] = useState("");
   const [isGeneratingLyric, setIsGeneratingLyric] = useState(false);
+  const [lyricDiagnostic, setLyricDiagnostic] = useState<LyricDiagnostic | null>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -105,6 +110,7 @@ export default function App() {
     setLyricMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setCurrentLyricInput("");
     setIsGeneratingLyric(true);
+    setLyricDiagnostic(null);
 
     try {
       const res = await fetch("/api/studio/generate-lyric", {
@@ -114,12 +120,21 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setLyricMessages((prev) => [...prev, { role: "bot", content: data?.error || copy.ai.lyricFailed }]);
+        const errorMessage = data?.error || copy.ai.lyricFailed;
+        setLyricMessages((prev) => [...prev, { role: "bot", content: errorMessage }]);
+        setLyricDiagnostic({
+          status: res.status,
+          message: errorMessage,
+        });
       } else {
+        setLyricDiagnostic(null);
         setLyricMessages((prev) => [...prev, { role: "bot", content: data.text || copy.ai.noResponse }]);
       }
     } catch (err) {
       console.error("Lyric generation error:", err);
+      setLyricDiagnostic({
+        message: copy.ai.lyricError,
+      });
       setLyricMessages((prev) => [...prev, { role: "bot", content: copy.ai.lyricError }]);
     } finally {
       setIsGeneratingLyric(false);
@@ -415,6 +430,21 @@ export default function App() {
                     <Send className="w-4 h-4" />
                   </button>
                 </form>
+
+                {lyricDiagnostic && (
+                  <div className="rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-200">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-red-200/70">{copy.ai.lyricDiagnosticTitle}</p>
+                    {lyricDiagnostic.status && (
+                      <p className="mt-2 text-xs text-red-100/80">
+                        {copy.ai.lyricDiagnosticStatus}: {lyricDiagnostic.status}
+                      </p>
+                    )}
+                    <p className="mt-2 whitespace-pre-wrap leading-relaxed">
+                      {lyricDiagnostic.message || copy.ai.lyricDiagnosticUnknown}
+                    </p>
+                    <p className="mt-3 text-xs text-red-100/70">{copy.ai.lyricDiagnosticHint}</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
