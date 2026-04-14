@@ -116,20 +116,17 @@ async function startServer() {
   const GEMINI_API_KEY = normalizeEnvVar(process.env.GEMINI_API_KEY);
   const GEMINI_TEXT_MODEL =
     normalizeEnvVar(process.env.GEMINI_TEXT_MODEL) || "gemini-2.5-flash";
+  const GEMINI_IMAGE_MODEL =
+    normalizeEnvVar(process.env.GEMINI_IMAGE_MODEL) || "gemini-2.5-flash-image";
   const GEMINI_TEXT_FALLBACK_MODELS = [
     GEMINI_TEXT_MODEL,
     "gemini-2.5-flash-lite",
     "gemini-3-flash-preview",
   ];
-  const CLOUDFLARE_ACCOUNT_ID = normalizeEnvVar(process.env.CLOUDFLARE_ACCOUNT_ID);
-  const CLOUDFLARE_API_TOKEN = normalizeEnvVar(process.env.CLOUDFLARE_API_TOKEN);
-  const CLOUDFLARE_IMAGE_MODEL =
-    normalizeEnvVar(process.env.CLOUDFLARE_IMAGE_MODEL) ||
-    "@cf/black-forest-labs/flux-2-klein-4b";
 
   console.log("Using Gemini API:", !!GEMINI_API_KEY);
   console.log("AI models:", {
-    image: CLOUDFLARE_IMAGE_MODEL,
+    image: GEMINI_IMAGE_MODEL,
     text: GEMINI_TEXT_MODEL,
   });
 
@@ -145,60 +142,49 @@ async function startServer() {
         return res.status(400).json({ error: "prompt is required" });
       }
 
-      if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN) {
+      if (!GEMINI_API_KEY) {
         return res
           .status(500)
           .json({
-            error:
-              "Cloudflare Workers AI is not configured. Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN on the server.",
+            error: "GEMINI_API_KEY not configured on server",
           });
       }
 
-      const form = new FormData();
-      form.append("prompt", prompt.trim());
-      form.append("width", "1024");
-      form.append("height", "1024");
+      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+      const contents: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
+        { text: prompt.trim() },
+      ];
 
       const source = parseDataUrl(sourceImage);
       if (source) {
-        const buffer = Buffer.from(source.data, "base64");
-        const blob = new Blob([buffer], { type: source.mimeType });
-        form.append("input_image_0", blob, "reference-image");
-      }
-
-      const cloudflareResponse = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${CLOUDFLARE_IMAGE_MODEL}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+        contents.push({
+          inlineData: {
+            mimeType: source.mimeType,
+            data: source.data,
           },
-          body: form,
-        },
-      );
-
-      const data = (await cloudflareResponse.json()) as {
-        success?: boolean;
-        errors?: Array<{ message?: string }>;
-        result?: { image?: string };
-      };
-
-      if (!cloudflareResponse.ok || !data.success) {
-        const message =
-          data.errors?.map((item) => item.message).filter(Boolean).join(" | ") ||
-          "Image generation failed";
-
-        return res.status(cloudflareResponse.status || 502).json({
-          error: message,
         });
       }
 
-      if (!data.result?.image) {
+      const response = await ai.models.generateContent({
+        model: GEMINI_IMAGE_MODEL,
+        contents,
+        config: {
+          imageConfig: {
+            aspectRatio: "1:1",
+          },
+        },
+      });
+
+      const imagePart = response.candidates
+        ?.flatMap((candidate: any) => candidate?.content?.parts || [])
+        ?.find((part: any) => part?.inlineData?.data);
+
+      if (!imagePart?.inlineData?.data) {
         return res.status(502).json({ error: "No image generated" });
       }
 
       return res.json({
-        image: `data:image/png;base64,${data.result.image}`,
+        image: `data:${imagePart.inlineData.mimeType || "image/png"};base64,${imagePart.inlineData.data}`,
       });
     } catch (err) {
       console.error("generate-image error", err);
