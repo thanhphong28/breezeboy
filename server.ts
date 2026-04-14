@@ -106,6 +106,13 @@ function normalizeLyricText(text?: string) {
     .trim();
 }
 
+function looksLikeBeat(title: string) {
+  const normalized = title.toLowerCase();
+  return ["beat", "type beat", "instrumental", "prod", "free for profit"].some((keyword) =>
+    normalized.includes(keyword),
+  );
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3001);
@@ -124,9 +131,15 @@ async function startServer() {
     "gemini-3-flash-preview",
   ];
 
+  const CLOUDFLARE_ACCOUNT_ID = normalizeEnvVar(process.env.CLOUDFLARE_ACCOUNT_ID);
+  const CLOUDFLARE_API_TOKEN = normalizeEnvVar(process.env.CLOUDFLARE_API_TOKEN);
+  const CLOUDFLARE_IMAGE_MODEL =
+    normalizeEnvVar(process.env.CLOUDFLARE_IMAGE_MODEL) ||
+    "@cf/black-forest-labs/flux-2-klein-4b";
+
   console.log("Using Gemini API:", !!GEMINI_API_KEY);
   console.log("AI models:", {
-    image: GEMINI_IMAGE_MODEL,
+    image: CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN ? CLOUDFLARE_IMAGE_MODEL : GEMINI_IMAGE_MODEL,
     text: GEMINI_TEXT_MODEL,
   });
 
@@ -142,11 +155,68 @@ async function startServer() {
         return res.status(400).json({ error: "prompt is required" });
       }
 
+      if (CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN) {
+        const form = new FormData();
+        form.append("prompt", prompt.trim());
+        form.append("width", "1024");
+        form.append("height", "1024");
+
+        const source = parseDataUrl(sourceImage);
+        if (source) {
+          const buffer = Buffer.from(source.data, "base64");
+          const blob = new Blob([buffer], { type: source.mimeType });
+          form.append("input_image_0", blob, "reference-image");
+        }
+
+        const cloudflareResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${CLOUDFLARE_IMAGE_MODEL}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+            },
+            body: form,
+          },
+        );
+
+        const rawText = await cloudflareResponse.text();
+        let data: any = null;
+
+        try {
+          data = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          data = null;
+        }
+
+        const message =
+          [
+            ...(data?.errors?.map((item: any) => item?.message).filter(Boolean) || []),
+            ...(data?.messages?.map((item: any) => item?.message).filter(Boolean) || []),
+          ].join(" | ") ||
+          data?.error ||
+          rawText ||
+          "Image generation failed";
+
+        if (!cloudflareResponse.ok || !data?.success) {
+          return res.status(cloudflareResponse.status || 502).json({
+            error: message,
+          });
+        }
+
+        if (!data?.result?.image) {
+          return res.status(502).json({ error: "No image generated" });
+        }
+
+        return res.json({
+          image: `data:image/png;base64,${data.result.image}`,
+        });
+      }
+
       if (!GEMINI_API_KEY) {
         return res
           .status(500)
           .json({
-            error: "GEMINI_API_KEY not configured on server",
+            error: "Neither Cloudflare Workers AI nor Gemini image generation is configured on server",
           });
       }
 
@@ -285,6 +355,33 @@ async function startServer() {
     } catch (error) {
       console.error("Search error:", error);
       res.status(500).json({ error: "Failed to search music" });
+    }
+  });
+
+  app.get("/api/beats", async (req, res) => {
+    try {
+      const query = String(req.query.q || "").trim();
+      if (!query) {
+        return res.status(400).json({ error: "Query parameter 'q' is required" });
+      }
+
+      const r = await ytSearch(`${query} type beat instrumental`);
+      const results = r.videos
+        .filter((v) => looksLikeBeat(v.title))
+        .slice(0, 12)
+        .map((v) => ({
+          id: v.videoId,
+          title: v.title,
+          artist: v.author.name,
+          duration: v.timestamp,
+          thumbnail: v.thumbnail,
+          url: v.url,
+        }));
+
+      return res.json({ results });
+    } catch (error) {
+      console.error("Beat search error:", error);
+      return res.status(500).json({ error: "Failed to search beats" });
     }
   });
 

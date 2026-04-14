@@ -5,9 +5,10 @@
 
 import { useEffect, useState } from "react";
 import { motion, useScroll, useTransform, AnimatePresence } from "motion/react";
-import { Menu, ArrowRight, Mail, MapPin, Moon, Sun, Sparkles, Loader2, Download, Send, Mic, Paperclip, X } from "lucide-react";
+import { Menu, ArrowRight, Mail, MapPin, Moon, Sun, Radio, Loader2, ExternalLink, Send, Mic } from "lucide-react";
 import InteractiveBackground from "./components/InteractiveBackground";
 import MusicPlayer from "./components/MusicPlayer";
+import YTPlayer from "./components/YTPlayer";
 import Lenis from "lenis";
 import { content, initialLyricGreeting, type Language } from "./copy";
 
@@ -16,9 +17,17 @@ type LyricDiagnostic = {
   status?: number;
   message: string;
 };
-type ImageDiagnostic = {
+type BeatDiagnostic = {
   status?: number;
   message: string;
+};
+type BeatResult = {
+  id: string;
+  title: string;
+  artist: string;
+  duration?: string;
+  thumbnail?: string;
+  url: string;
 };
 
 const getInitialLanguage = (): Language => {
@@ -58,12 +67,12 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(getInitialLanguage);
   const copy = content[language];
 
-  const [imagePrompt, setImagePrompt] = useState("");
-  const [sourceImage, setSourceImage] = useState<string | null>(null);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [imageError, setImageError] = useState<string | null>(null);
-  const [imageDiagnostic, setImageDiagnostic] = useState<ImageDiagnostic | null>(null);
+  const [beatQuery, setBeatQuery] = useState("");
+  const [beatResults, setBeatResults] = useState<BeatResult[]>([]);
+  const [selectedBeat, setSelectedBeat] = useState<BeatResult | null>(null);
+  const [isSearchingBeat, setIsSearchingBeat] = useState(false);
+  const [beatError, setBeatError] = useState<string | null>(null);
+  const [beatDiagnostic, setBeatDiagnostic] = useState<BeatDiagnostic | null>(null);
 
   const [lyricMessages, setLyricMessages] = useState<LyricMessage[]>([
     { role: "bot", content: initialLyricGreeting[getInitialLanguage()] },
@@ -72,57 +81,41 @@ export default function App() {
   const [isGeneratingLyric, setIsGeneratingLyric] = useState(false);
   const [lyricDiagnostic, setLyricDiagnostic] = useState<LyricDiagnostic | null>(null);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setSourceImage(reader.result as string);
-      reader.readAsDataURL(file);
-    }
-  };
+  const handleSearchBeat = async () => {
+    if (!beatQuery.trim()) return;
 
-  const handleGenerateImage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!imagePrompt.trim()) return;
-
-    setIsGeneratingImage(true);
-    setImageError(null);
-    setGeneratedImage(null);
-    setImageDiagnostic(null);
+    setIsSearchingBeat(true);
+    setBeatError(null);
+    setBeatDiagnostic(null);
+    setBeatResults([]);
+    setSelectedBeat(null);
 
     try {
-      const res = await fetch("/api/studio/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: imagePrompt, sourceImage }),
-      });
+      const res = await fetch(`/api/beats?q=${encodeURIComponent(beatQuery)}`);
       const data = await res.json();
       if (!res.ok) {
-        const errorMessage = data?.error || copy.ai.imageFailed;
-        setImageError(errorMessage);
-        setImageDiagnostic({
+        const errorMessage = data?.error || copy.ai.beatError;
+        setBeatError(errorMessage);
+        setBeatDiagnostic({
           status: res.status,
           message: errorMessage,
         });
-      } else if (data.image) {
-        setGeneratedImage(data.image);
-        setImageDiagnostic(null);
       } else {
-        const errorMessage = data?.error || copy.ai.noImage;
-        setImageError(errorMessage);
-        setImageDiagnostic({
-          status: res.status,
-          message: errorMessage,
-        });
+        const results = Array.isArray(data?.results) ? data.results : [];
+        setBeatResults(results);
+        setSelectedBeat(results[0] || null);
+        if (!results.length) {
+          setBeatError(copy.ai.beatNoResults);
+        }
       }
     } catch (err) {
-      console.error("Image generation error:", err);
-      setImageError(copy.ai.imageError);
-      setImageDiagnostic({
-        message: copy.ai.imageError,
+      console.error("Beat search error:", err);
+      setBeatError(copy.ai.beatError);
+      setBeatDiagnostic({
+        message: copy.ai.beatError,
       });
     } finally {
-      setIsGeneratingImage(false);
+      setIsSearchingBeat(false);
     }
   };
 
@@ -367,71 +360,105 @@ export default function App() {
           <div className="grid gap-8 lg:grid-cols-2">
             <div className="liquid-glass flex flex-col rounded-[32px] p-8">
               <div className="flex items-center gap-3 mb-8">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-foreground/5"><Sparkles className="w-5 h-5 text-muted-foreground" /></div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-foreground/5"><Radio className="w-5 h-5 text-muted-foreground" /></div>
                 <div>
-                  <h3 className="text-xl font-medium">{copy.ai.visionTitle}</h3>
-                  <p className="text-xs text-muted-foreground uppercase tracking-widest">{copy.ai.visionMeta}</p>
+                  <h3 className="text-xl font-medium">{copy.ai.beatTitle}</h3>
+                  <p className="text-xs text-muted-foreground uppercase tracking-widest">{copy.ai.beatMeta}</p>
                 </div>
               </div>
 
               <div className="flex-1 space-y-6">
                 <div className="relative aspect-square w-full rounded-2xl bg-foreground/5 overflow-hidden flex items-center justify-center">
-                  {isGeneratingImage ? (
+                  {isSearchingBeat ? (
                     <div className="flex flex-col items-center gap-4">
                       <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground animate-pulse">{copy.ai.visionLoading}</p>
+                      <p className="text-sm text-muted-foreground animate-pulse">{copy.ai.beatLoading}</p>
                     </div>
-                  ) : imageError ? (
-                    <p className="text-sm text-red-400/80 px-8 text-center">{imageError}</p>
-                  ) : generatedImage ? (
-                    <img src={generatedImage} alt={copy.ai.visionAlt} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : selectedBeat ? (
+                    <>
+                      <YTPlayer videoId={selectedBeat.id} playing={false} muted={false} width="100%" height="100%" />
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-5">
+                        <p className="text-sm font-medium text-white line-clamp-2">{selectedBeat.title}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/70">
+                          {selectedBeat.artist}{selectedBeat.duration ? ` • ${selectedBeat.duration}` : ""}
+                        </p>
+                      </div>
+                    </>
                   ) : (
-                    <div className="text-center px-12"><p className="text-sm text-muted-foreground italic">{copy.ai.visionSample}</p></div>
+                    <div className="text-center px-12"><p className="text-sm text-muted-foreground italic">{copy.ai.beatSample}</p></div>
                   )}
                 </div>
 
                 <div className="space-y-4">
-                  {sourceImage && (
-                    <div className="relative h-20 w-20 rounded-lg overflow-hidden group">
-                      <img src={sourceImage} className="h-full w-full object-cover" alt={copy.ai.visionSourceAlt} />
-                      <button onClick={() => setSourceImage(null)} className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <X className="w-4 h-4 text-white" />
-                      </button>
-                    </div>
-                  )}
-                  <div className="flex gap-4 items-end">
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleSearchBeat();
+                  }} className="flex gap-4 items-end">
                     <div className="flex-1">
-                      <textarea rows={2} value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)} placeholder={copy.ai.visionPlaceholder} className="w-full border-b border-foreground/10 bg-transparent py-2 text-foreground outline-none hover:border-foreground/40 hover:bg-foreground/[0.03] focus:border-foreground/60 transition-all duration-500 ease-out resize-none text-sm" />
+                      <textarea rows={2} value={beatQuery} onChange={(e) => setBeatQuery(e.target.value)} placeholder={copy.ai.beatPlaceholder} className="w-full border-b border-foreground/10 bg-transparent py-2 text-foreground outline-none hover:border-foreground/40 hover:bg-foreground/[0.03] focus:border-foreground/60 transition-all duration-500 ease-out resize-none text-sm" />
                     </div>
-                    <label className="liquid-glass flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:text-foreground transition-all">
-                      <Paperclip className="w-4 h-4" />
-                      <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                    </label>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <button onClick={handleGenerateImage} disabled={isGeneratingImage || !imagePrompt.trim()} className="liquid-glass flex-1 flex items-center justify-center gap-2 rounded-full py-3 text-sm font-medium text-foreground active:scale-[0.99] transition-all duration-500 ease-out disabled:opacity-50 disabled:cursor-not-allowed">
-                      {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      {copy.ai.visionButton}
+                    <button type="submit" disabled={isSearchingBeat || !beatQuery.trim()} className="liquid-glass flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full px-4 text-muted-foreground hover:text-foreground transition-all disabled:opacity-50">
+                      {isSearchingBeat ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
                     </button>
-                    {generatedImage && (
-                      <a href={generatedImage} download={copy.ai.downloadName} className="liquid-glass flex h-11 w-11 items-center justify-center rounded-full text-foreground transition-all">
-                        <Download className="w-4 h-4" />
+                  </form>
+                  <div className="flex items-center justify-between gap-4">
+                    <button type="button" onClick={() => void handleSearchBeat()} disabled={isSearchingBeat || !beatQuery.trim()} className="liquid-glass flex-1 flex items-center justify-center gap-2 rounded-full py-3 text-sm font-medium text-foreground active:scale-[0.99] transition-all duration-500 ease-out disabled:opacity-50 disabled:cursor-not-allowed">
+                      {isSearchingBeat ? <Loader2 className="w-4 h-4 animate-spin" /> : <Radio className="w-4 h-4" />}
+                      {copy.ai.beatButton}
+                    </button>
+                    {selectedBeat && (
+                      <a href={selectedBeat.url} target="_blank" rel="noreferrer" className="liquid-glass flex h-11 items-center justify-center gap-2 rounded-full px-4 text-foreground transition-all">
+                        <ExternalLink className="w-4 h-4" />
+                        <span className="text-xs font-medium">{copy.ai.beatOpenButton}</span>
                       </a>
                     )}
                   </div>
 
-                  {imageDiagnostic && (
+                  {beatError && !beatDiagnostic && (
+                    <p className="text-sm text-red-400/80">{beatError}</p>
+                  )}
+
+                  {beatResults.length > 0 && (
+                    <div className="max-h-60 space-y-2 overflow-y-auto pr-1">
+                      {beatResults.map((beat) => (
+                        <button
+                          key={beat.id}
+                          type="button"
+                          onClick={() => setSelectedBeat(beat)}
+                          className={`flex w-full items-center gap-4 rounded-2xl p-3 text-left transition-all ${
+                            selectedBeat?.id === beat.id ? "bg-foreground/10" : "hover:bg-foreground/5"
+                          }`}
+                        >
+                          <div className="h-12 w-12 overflow-hidden rounded-xl bg-foreground/5 shrink-0">
+                            {beat.thumbnail && <img src={beat.thumbnail} alt={copy.ai.beatPreviewAlt} className="h-full w-full object-cover" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="line-clamp-1 text-sm font-medium text-foreground">{beat.title}</p>
+                            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                              {beat.artist}{beat.duration ? ` • ${beat.duration}` : ""}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {!beatResults.length && !selectedBeat && !isSearchingBeat && !beatError && (
+                    <p className="text-sm text-muted-foreground">{copy.ai.beatEmpty}</p>
+                  )}
+
+                  {beatDiagnostic && (
                     <div className="rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-200">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-red-200/70">{copy.ai.imageDiagnosticTitle}</p>
-                      {imageDiagnostic.status && (
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-red-200/70">{copy.ai.beatDiagnosticTitle}</p>
+                      {beatDiagnostic.status && (
                         <p className="mt-2 text-xs text-red-100/80">
-                          {copy.ai.imageDiagnosticStatus}: {imageDiagnostic.status}
+                          {copy.ai.beatDiagnosticStatus}: {beatDiagnostic.status}
                         </p>
                       )}
                       <p className="mt-2 whitespace-pre-wrap leading-relaxed">
-                        {imageDiagnostic.message || copy.ai.imageDiagnosticUnknown}
+                        {beatDiagnostic.message || copy.ai.beatDiagnosticUnknown}
                       </p>
-                      <p className="mt-3 text-xs text-red-100/70">{copy.ai.imageDiagnosticHint}</p>
+                      <p className="mt-3 text-xs text-red-100/70">{copy.ai.beatDiagnosticHint}</p>
                     </div>
                   )}
                 </div>
