@@ -7,6 +7,28 @@ import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
+function normalizeEnvVar(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const hasWrappingDoubleQuotes =
+    trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2;
+  const hasWrappingSingleQuotes =
+    trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2;
+
+  if (hasWrappingDoubleQuotes || hasWrappingSingleQuotes) {
+    return trimmed.slice(1, -1).trim() || undefined;
+  }
+
+  return trimmed;
+}
+
 function getApiErrorDetails(error: unknown, fallbackMessage: string) {
   const status =
     typeof error === "object" &&
@@ -91,18 +113,18 @@ async function startServer() {
 
   app.use(express.json({ limit: "25mb" }));
 
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  const GEMINI_API_KEY = normalizeEnvVar(process.env.GEMINI_API_KEY);
   const GEMINI_TEXT_MODEL =
-    process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
+    normalizeEnvVar(process.env.GEMINI_TEXT_MODEL) || "gemini-2.5-flash";
   const GEMINI_TEXT_FALLBACK_MODELS = [
     GEMINI_TEXT_MODEL,
     "gemini-2.5-flash-lite",
     "gemini-3-flash-preview",
   ];
-  const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+  const CLOUDFLARE_ACCOUNT_ID = normalizeEnvVar(process.env.CLOUDFLARE_ACCOUNT_ID);
+  const CLOUDFLARE_API_TOKEN = normalizeEnvVar(process.env.CLOUDFLARE_API_TOKEN);
   const CLOUDFLARE_IMAGE_MODEL =
-    process.env.CLOUDFLARE_IMAGE_MODEL ||
+    normalizeEnvVar(process.env.CLOUDFLARE_IMAGE_MODEL) ||
     "@cf/black-forest-labs/flux-2-klein-4b";
 
   console.log("Using Gemini API:", !!GEMINI_API_KEY);

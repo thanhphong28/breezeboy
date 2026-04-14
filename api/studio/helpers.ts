@@ -26,6 +26,32 @@ function getStatusFromError(error: unknown): number | undefined {
   return undefined;
 }
 
+export function normalizeEnvVar(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const hasWrappingDoubleQuotes =
+    trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2;
+  const hasWrappingSingleQuotes =
+    trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2;
+
+  if (hasWrappingDoubleQuotes || hasWrappingSingleQuotes) {
+    return trimmed.slice(1, -1).trim() || undefined;
+  }
+
+  return trimmed;
+}
+
+export function readEnvVar(name: string) {
+  return normalizeEnvVar(process.env[name]);
+}
+
 function getMessageFromError(error: unknown, fallbackMessage: string) {
   let message = fallbackMessage;
 
@@ -93,7 +119,7 @@ export function getApiErrorDetails(error: unknown, fallbackMessage: string) {
     return {
       status,
       message:
-        "Authentication failed. Verify GEMINI_API_KEY and ensure the key is valid and enabled for the Gemini API.",
+        "Authentication failed. Verify GEMINI_API_KEY. If you pasted it into Vercel with quotes, remove them. Also ensure the key is valid, Gemini API access is enabled, and no API key restrictions are blocking Vercel.",
     };
   }
 

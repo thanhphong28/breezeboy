@@ -1,8 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
-import { getApiErrorDetails, getJsonBody, normalizeLyricText } from "./helpers.js";
+import { getApiErrorDetails, getJsonBody, normalizeLyricText, readEnvVar } from "./helpers.js";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
+const GEMINI_API_KEY = readEnvVar("GEMINI_API_KEY");
+const GEMINI_TEXT_MODEL = readEnvVar("GEMINI_TEXT_MODEL") || "gemini-2.5-flash";
 const GEMINI_TEXT_FALLBACK_MODELS = [
   GEMINI_TEXT_MODEL,
   "gemini-2.5-flash-lite",
@@ -71,7 +71,16 @@ export default async function handler(req, res) {
     const details = getApiErrorDetails(lastError, "Lyric generation failed");
     return res.status(details.status).json({ error: details.message });
   } catch (err) {
-    console.error("generate-lyric error", err);
+    console.error("generate-lyric error", {
+      status:
+        typeof err === "object" &&
+        err !== null &&
+        "status" in err &&
+        typeof (err as { status?: unknown }).status === "number"
+          ? (err as { status: number }).status
+          : undefined,
+      message: err instanceof Error ? err.message : String(err),
+    });
     const details = getApiErrorDetails(err, "Lyric generation failed");
     return res.status(details.status).json({ error: details.message });
   }

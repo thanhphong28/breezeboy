@@ -1,9 +1,9 @@
-import { getApiErrorDetails, getJsonBody, parseDataUrl } from "./helpers.js";
+import { getApiErrorDetails, getJsonBody, parseDataUrl, readEnvVar } from "./helpers.js";
 
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
-const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+const CLOUDFLARE_ACCOUNT_ID = readEnvVar("CLOUDFLARE_ACCOUNT_ID");
+const CLOUDFLARE_API_TOKEN = readEnvVar("CLOUDFLARE_API_TOKEN");
 const CLOUDFLARE_IMAGE_MODEL =
-  process.env.CLOUDFLARE_IMAGE_MODEL || "@cf/black-forest-labs/flux-2-klein-4b";
+  readEnvVar("CLOUDFLARE_IMAGE_MODEL") || "@cf/black-forest-labs/flux-2-klein-4b";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
