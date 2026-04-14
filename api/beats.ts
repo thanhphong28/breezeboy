@@ -1,17 +1,4 @@
-import ytSearch from "yt-search";
-
-const BEAT_KEYWORDS = [
-  "beat",
-  "type beat",
-  "instrumental",
-  "prod",
-  "free for profit",
-];
-
-function looksLikeBeat(title: string) {
-  const normalized = title.toLowerCase();
-  return BEAT_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
+import { searchBeatSources } from "./beats-source.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -24,22 +11,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const searchQuery = `${query} type beat instrumental`;
-    const r = await ytSearch(searchQuery);
-
-    const videos = r.videos
-      .filter((v) => looksLikeBeat(v.title))
-      .slice(0, 12)
-      .map((v) => ({
-        id: v.videoId,
-        title: v.title,
-        artist: v.author.name,
-        duration: v.timestamp,
-        thumbnail: v.thumbnail,
-        url: v.url,
-      }));
-
-    return res.status(200).json({ results: videos });
+    const results = await searchBeatSources(query);
+    return res.status(200).json({ results });
   } catch (error) {
     console.error("Beat search error:", error);
     return res.status(500).json({ error: "Failed to search beats" });

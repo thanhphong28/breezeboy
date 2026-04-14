@@ -5,10 +5,9 @@
 
 import { useEffect, useState } from "react";
 import { motion, useScroll, useTransform, AnimatePresence } from "motion/react";
-import { Menu, ArrowRight, Mail, MapPin, Moon, Sun, Radio, Loader2, ExternalLink, Send, Mic } from "lucide-react";
+import { Menu, ArrowRight, Mail, MapPin, Moon, Sun, Radio, Loader2, ExternalLink, Send, Mic, Copy, Check } from "lucide-react";
 import InteractiveBackground from "./components/InteractiveBackground";
 import MusicPlayer from "./components/MusicPlayer";
-import YTPlayer from "./components/YTPlayer";
 import Lenis from "lenis";
 import { content, initialLyricGreeting, type Language } from "./copy";
 
@@ -28,6 +27,7 @@ type BeatResult = {
   duration?: string;
   thumbnail?: string;
   url: string;
+  previewUrl?: string;
 };
 
 const getInitialLanguage = (): Language => {
@@ -73,6 +73,8 @@ export default function App() {
   const [isSearchingBeat, setIsSearchingBeat] = useState(false);
   const [beatError, setBeatError] = useState<string | null>(null);
   const [beatDiagnostic, setBeatDiagnostic] = useState<BeatDiagnostic | null>(null);
+  const [copiedBeatUrl, setCopiedBeatUrl] = useState<string | null>(null);
+  const [isBeatPreviewPlaying, setIsBeatPreviewPlaying] = useState(false);
 
   const [lyricMessages, setLyricMessages] = useState<LyricMessage[]>([
     { role: "bot", content: initialLyricGreeting[getInitialLanguage()] },
@@ -89,6 +91,7 @@ export default function App() {
     setBeatDiagnostic(null);
     setBeatResults([]);
     setSelectedBeat(null);
+    setIsBeatPreviewPlaying(false);
 
     try {
       const res = await fetch(`/api/beats?q=${encodeURIComponent(beatQuery)}`);
@@ -104,6 +107,7 @@ export default function App() {
         const results = Array.isArray(data?.results) ? data.results : [];
         setBeatResults(results);
         setSelectedBeat(results[0] || null);
+        setIsBeatPreviewPlaying(false);
         if (!results.length) {
           setBeatError(copy.ai.beatNoResults);
         }
@@ -116,6 +120,21 @@ export default function App() {
       });
     } finally {
       setIsSearchingBeat(false);
+    }
+  };
+
+  const handleCopyBeatLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedBeatUrl(url);
+      window.setTimeout(() => {
+        setCopiedBeatUrl((current) => (current === url ? null : current));
+      }, 2000);
+    } catch (error) {
+      console.error("Copy beat link error:", error);
+      setBeatDiagnostic({
+        message: copy.ai.beatCopyError,
+      });
     }
   };
 
@@ -375,15 +394,49 @@ export default function App() {
                       <p className="text-sm text-muted-foreground animate-pulse">{copy.ai.beatLoading}</p>
                     </div>
                   ) : selectedBeat ? (
-                    <>
-                      <YTPlayer videoId={selectedBeat.id} playing={false} muted={false} width="100%" height="100%" />
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-5">
-                        <p className="text-sm font-medium text-white line-clamp-2">{selectedBeat.title}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/70">
-                          {selectedBeat.artist}{selectedBeat.duration ? ` • ${selectedBeat.duration}` : ""}
-                        </p>
+                    <div className="flex h-full w-full flex-col justify-between bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.1),_transparent_58%),linear-gradient(160deg,rgba(19,27,44,0.98),rgba(8,10,18,0.92))] p-6">
+                      <div className="flex items-start gap-4">
+                        <div className="h-16 w-16 overflow-hidden rounded-2xl bg-white/10 shrink-0">
+                          {selectedBeat.thumbnail ? (
+                            <img src={selectedBeat.thumbnail} alt={copy.ai.beatPreviewAlt} className="h-full w-full object-cover" />
+                          ) : null}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium uppercase tracking-[0.2em] text-white/60">{copy.ai.beatSourceLabel}</p>
+                          <h4 className="mt-2 line-clamp-3 text-lg font-medium text-white">{selectedBeat.title}</h4>
+                          <p className="mt-2 text-sm text-white/70">
+                            {selectedBeat.artist}{selectedBeat.duration ? ` • ${selectedBeat.duration}` : ""}
+                          </p>
+                        </div>
                       </div>
-                    </>
+
+                      {selectedBeat.previewUrl ? (
+                        <div className="mt-6">
+                          <audio
+                            key={selectedBeat.id}
+                            controls
+                            src={selectedBeat.previewUrl}
+                            className="w-full"
+                            onPlay={() => setIsBeatPreviewPlaying(true)}
+                            onPause={() => setIsBeatPreviewPlaying(false)}
+                            onEnded={() => setIsBeatPreviewPlaying(false)}
+                          />
+                        </div>
+                      ) : null}
+
+                      <div className="mt-6 flex items-end justify-between gap-4">
+                        <div className="flex gap-1">
+                          {Array.from({ length: 18 }).map((_, index) => (
+                            <span
+                              key={index}
+                              className={`block w-1 rounded-full bg-white/70 transition-all duration-300 ${isBeatPreviewPlaying ? "animate-pulse" : "opacity-40"}`}
+                              style={{ height: `${18 + ((index * 11) % 48)}px`, animationDelay: `${index * 70}ms` }}
+                            />
+                          ))}
+                        </div>
+                        <p className="max-w-[9rem] text-right text-xs uppercase tracking-[0.2em] text-white/45">{copy.ai.beatPreviewHint}</p>
+                      </div>
+                    </div>
                   ) : (
                     <div className="text-center px-12"><p className="text-sm text-muted-foreground italic">{copy.ai.beatSample}</p></div>
                   )}
@@ -407,10 +460,22 @@ export default function App() {
                       {copy.ai.beatButton}
                     </button>
                     {selectedBeat && (
-                      <a href={selectedBeat.url} target="_blank" rel="noreferrer" className="liquid-glass flex h-11 items-center justify-center gap-2 rounded-full px-4 text-foreground transition-all">
-                        <ExternalLink className="w-4 h-4" />
-                        <span className="text-xs font-medium">{copy.ai.beatOpenButton}</span>
-                      </a>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyBeatLink(selectedBeat.url)}
+                          className="liquid-glass flex h-11 items-center justify-center gap-2 rounded-full px-4 text-foreground transition-all"
+                        >
+                          {copiedBeatUrl === selectedBeat.url ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          <span className="text-xs font-medium">
+                            {copiedBeatUrl === selectedBeat.url ? copy.ai.beatCopied : copy.ai.beatCopyButton}
+                          </span>
+                        </button>
+                        <a href={selectedBeat.url} target="_blank" rel="noreferrer" className="liquid-glass flex h-11 items-center justify-center gap-2 rounded-full px-4 text-foreground transition-all">
+                          <ExternalLink className="w-4 h-4" />
+                          <span className="text-xs font-medium">{copy.ai.beatOpenButton}</span>
+                        </a>
+                      </div>
                     )}
                   </div>
 
@@ -424,7 +489,10 @@ export default function App() {
                         <button
                           key={beat.id}
                           type="button"
-                          onClick={() => setSelectedBeat(beat)}
+                          onClick={() => {
+                            setSelectedBeat(beat);
+                            setIsBeatPreviewPlaying(false);
+                          }}
                           className={`flex w-full items-center gap-4 rounded-2xl p-3 text-left transition-all ${
                             selectedBeat?.id === beat.id ? "bg-foreground/10" : "hover:bg-foreground/5"
                           }`}

@@ -4,6 +4,7 @@ import ytSearch from "yt-search";
 import path from "path";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
+import { searchBeatSources } from "./api/beats-source.js";
 
 dotenv.config();
 
@@ -104,13 +105,6 @@ function normalizeLyricText(text?: string) {
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function looksLikeBeat(title: string) {
-  const normalized = title.toLowerCase();
-  return ["beat", "type beat", "instrumental", "prod", "free for profit"].some((keyword) =>
-    normalized.includes(keyword),
-  );
 }
 
 async function startServer() {
@@ -365,19 +359,7 @@ async function startServer() {
         return res.status(400).json({ error: "Query parameter 'q' is required" });
       }
 
-      const r = await ytSearch(`${query} type beat instrumental`);
-      const results = r.videos
-        .filter((v) => looksLikeBeat(v.title))
-        .slice(0, 12)
-        .map((v) => ({
-          id: v.videoId,
-          title: v.title,
-          artist: v.author.name,
-          duration: v.timestamp,
-          thumbnail: v.thumbnail,
-          url: v.url,
-        }));
-
+      const results = await searchBeatSources(query);
       return res.json({ results });
     } catch (error) {
       console.error("Beat search error:", error);
