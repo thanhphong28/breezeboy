@@ -16,6 +16,10 @@ type LyricDiagnostic = {
   status?: number;
   message: string;
 };
+type ImageDiagnostic = {
+  status?: number;
+  message: string;
+};
 
 const getInitialLanguage = (): Language => {
   if (typeof window === "undefined") return "vi";
@@ -59,6 +63,7 @@ export default function App() {
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [imageDiagnostic, setImageDiagnostic] = useState<ImageDiagnostic | null>(null);
 
   const [lyricMessages, setLyricMessages] = useState<LyricMessage[]>([
     { role: "bot", content: initialLyricGreeting[getInitialLanguage()] },
@@ -83,6 +88,7 @@ export default function App() {
     setIsGeneratingImage(true);
     setImageError(null);
     setGeneratedImage(null);
+    setImageDiagnostic(null);
 
     try {
       const res = await fetch("/api/studio/generate-image", {
@@ -91,12 +97,30 @@ export default function App() {
         body: JSON.stringify({ prompt: imagePrompt, sourceImage }),
       });
       const data = await res.json();
-      if (!res.ok) setImageError(data?.error || copy.ai.imageFailed);
-      else if (data.image) setGeneratedImage(data.image);
-      else setImageError(data?.error || copy.ai.noImage);
+      if (!res.ok) {
+        const errorMessage = data?.error || copy.ai.imageFailed;
+        setImageError(errorMessage);
+        setImageDiagnostic({
+          status: res.status,
+          message: errorMessage,
+        });
+      } else if (data.image) {
+        setGeneratedImage(data.image);
+        setImageDiagnostic(null);
+      } else {
+        const errorMessage = data?.error || copy.ai.noImage;
+        setImageError(errorMessage);
+        setImageDiagnostic({
+          status: res.status,
+          message: errorMessage,
+        });
+      }
     } catch (err) {
       console.error("Image generation error:", err);
       setImageError(copy.ai.imageError);
+      setImageDiagnostic({
+        message: copy.ai.imageError,
+      });
     } finally {
       setIsGeneratingImage(false);
     }
@@ -395,6 +419,21 @@ export default function App() {
                       </a>
                     )}
                   </div>
+
+                  {imageDiagnostic && (
+                    <div className="rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-200">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-red-200/70">{copy.ai.imageDiagnosticTitle}</p>
+                      {imageDiagnostic.status && (
+                        <p className="mt-2 text-xs text-red-100/80">
+                          {copy.ai.imageDiagnosticStatus}: {imageDiagnostic.status}
+                        </p>
+                      )}
+                      <p className="mt-2 whitespace-pre-wrap leading-relaxed">
+                        {imageDiagnostic.message || copy.ai.imageDiagnosticUnknown}
+                      </p>
+                      <p className="mt-3 text-xs text-red-100/70">{copy.ai.imageDiagnosticHint}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

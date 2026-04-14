@@ -49,15 +49,29 @@ export default async function handler(req, res) {
       },
     );
 
-    const data = (await cloudflareResponse.json()) as {
+    const rawText = await cloudflareResponse.text();
+    let data: any = null;
+
+    try {
+      data = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      data = null;
+    }
+
+    const parsedData = data as {
       success?: boolean;
       errors?: Array<{ message?: string }>;
+      messages?: Array<{ message?: string }>;
       result?: { image?: string };
     };
 
-    if (!cloudflareResponse.ok || !data.success) {
+    if (!cloudflareResponse.ok || !parsedData?.success) {
       const message =
-        data.errors?.map((item) => item.message).filter(Boolean).join(" | ") ||
+        [
+          ...(parsedData?.errors?.map((item) => item.message).filter(Boolean) || []),
+          ...(parsedData?.messages?.map((item) => item.message).filter(Boolean) || []),
+        ].join(" | ") ||
+        rawText ||
         "Image generation failed";
 
       return res.status(cloudflareResponse.status || 502).json({
@@ -65,15 +79,32 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!data.result?.image) {
+    if (!parsedData?.result?.image) {
       return res.status(502).json({ error: "No image generated" });
     }
 
     return res.status(200).json({
-      image: `data:image/png;base64,${data.result.image}`,
+      image: `data:image/png;base64,${parsedData.result.image}`,
     });
   } catch (err) {
-    console.error("generate-image error", err);
+    console.error("generate-image error", {
+      status:
+        typeof err === "object" &&
+        err !== null &&
+        "status" in err &&
+        typeof (err as { status?: unknown }).status === "number"
+          ? (err as { status: number }).status
+          : undefined,
+      message:
+        typeof err === "object" &&
+        err !== null &&
+        "message" in err &&
+        typeof (err as { message?: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : err instanceof Error
+            ? err.message
+            : String(err),
+    });
     const details = getApiErrorDetails(err, "Image generation failed");
     return res.status(details.status).json({ error: details.message });
   }
